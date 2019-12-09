@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 import traceback
+from quad_tree import QuadTree, Node
 
 DEFAULT_HOST = '0.0.0.0'
 DEFAULT_PORT = 4080
@@ -484,6 +485,7 @@ class Model(object):
         x, y, z, rx, ry = map(float, (x, y, z, rx, ry))
         client.position = (x, y, z, rx, ry)
         self.send_position(client)
+        self.build_quad_tree()
     def on_talk(self, client, *args):
         text = ','.join(args)
         if text.startswith('/'):
@@ -625,6 +627,18 @@ class Model(object):
         log(text)
         for client in self.clients:
             client.send(TALK, text)
+    def build_quad_tree(self):
+        chunks = []
+        for client in self.clients:
+            (x, y, z, rx, ry) = client.position
+            p, q = chunked(x), chunked(z)
+            if (p,q) not in chunks:
+                chunks.append((p,q))
+        print(chunks)
+        tree = QuadTree(chunks)
+        tree.graph()
+
+
 
 def cleanup():
     world = World(None)
