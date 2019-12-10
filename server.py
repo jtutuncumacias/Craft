@@ -11,7 +11,7 @@ import sys
 import threading
 import time
 import traceback
-from quad_tree import QuadTree, Node
+from quad_tree import Chunk, Node, QuadTree
 
 DEFAULT_HOST = '0.0.0.0'
 DEFAULT_PORT = 4080
@@ -169,6 +169,7 @@ class Handler(SocketServer.BaseRequestHandler):
 
 class Model(object):
     def __init__(self, seed):
+        self.quad_tree = None
         self.world = World(seed)
         self.clients = []
         self.queue = Queue.Queue()
@@ -293,6 +294,7 @@ class Model(object):
         client.send(TIME, time.time(), DAY_LENGTH)
         client.send(TALK, 'Welcome to Craft!')
         client.send(TALK, 'Type "/help" for a list of commands.')
+        self.build_quad_tree()
         self.send_position(client)
         self.send_positions(client)
         self.send_nick(client)
@@ -408,6 +410,7 @@ class Model(object):
             'insert or replace into block (p, q, x, y, z, w) '
             'values (:p, :q, :x, :y, :z, :w);'
         )
+        self.build_quad_tree()
         self.execute(query, dict(p=p, q=q, x=x, y=y, z=z, w=w))
         self.send_block(client, p, q, x, y, z, w)
         for dx in range(-1, 2):
@@ -452,6 +455,7 @@ class Model(object):
             'insert or replace into light (p, q, x, y, z, w) '
             'values (:p, :q, :x, :y, :z, :w);'
         )
+        self.build_quad_tree()
         self.execute(query, dict(p=p, q=q, x=x, y=y, z=z, w=w))
         self.send_light(client, p, q, x, y, z, w)
     def on_sign(self, client, x, y, z, face, *args):
@@ -467,6 +471,9 @@ class Model(object):
         if len(text) > 48:
             return
         p, q = chunked(x), chunked(z)
+
+        self.build_quad_tree()
+
         if text:
             query = (
                 'insert or replace into sign (p, q, x, y, z, face, text) '
@@ -484,8 +491,8 @@ class Model(object):
     def on_position(self, client, x, y, z, rx, ry):
         x, y, z, rx, ry = map(float, (x, y, z, rx, ry))
         client.position = (x, y, z, rx, ry)
-        self.send_position(client)
         self.build_quad_tree()
+        self.send_position(client)
     def on_talk(self, client, *args):
         text = ','.join(args)
         if text.startswith('/'):
@@ -584,12 +591,22 @@ class Model(object):
         client.send(TALK,
             'Players: %s' % ', '.join(x.nick for x in self.clients))
     def send_positions(self, client):
-        for other in self.clients:
+        (x, y, z, rx, ry) = client.position
+        p, q = chunked(x), chunked(z)
+        quadclients = self.quad_tree.getClients(p, q, 4)
+        print("quadclients: ", ', '.join(str(client.client_id) for client in quadclients))
+
+        for other in quadclients:
             if other == client:
                 continue
             client.send(POSITION, other.client_id, *other.position)
     def send_position(self, client):
-        for other in self.clients:
+        (x, y, z, rx, ry) = client.position
+        p, q = chunked(x), chunked(z)
+        quadclients = self.quad_tree.getClients(p, q, 4)
+        print("quadclients: ", ', '.join(str(client.client_id) for client in quadclients))
+
+        for other in quadclients:
             if other == client:
                 continue
             other.send(POSITION, client.client_id, *client.position)
@@ -607,19 +624,28 @@ class Model(object):
                 continue
             other.send(DISCONNECT, client.client_id)
     def send_block(self, client, p, q, x, y, z, w):
-        for other in self.clients:
+        quadclients = self.quad_tree.getClients(p, q, 4)
+        print("quadclients: ", ', '.join(str(client.client_id) for client in quadclients))
+        
+        for other in quadclients:
             if other == client:
                 continue
             other.send(BLOCK, p, q, x, y, z, w)
             other.send(REDRAW, p, q)
     def send_light(self, client, p, q, x, y, z, w):
-        for other in self.clients:
+        quadclients = self.quad_tree.getClients(p, q, 4)
+        print("quadclients: ", ', '.join(str(client.client_id) for client in quadclients))
+        
+        for other in quadclients:
             if other == client:
                 continue
             other.send(LIGHT, p, q, x, y, z, w)
             other.send(REDRAW, p, q)
     def send_sign(self, client, p, q, x, y, z, face, text):
-        for other in self.clients:
+        quadclients = self.quad_tree.getClients(p, q, 4)
+        print("quadclients: ", ', '.join(str(client.client_id) for client in quadclients))
+        
+        for other in quadclients:
             if other == client:
                 continue
             other.send(SIGN, p, q, x, y, z, face, text)
@@ -628,15 +654,14 @@ class Model(object):
         for client in self.clients:
             client.send(TALK, text)
     def build_quad_tree(self):
-        chunks = []
+        chunks = {}
         for client in self.clients:
             (x, y, z, rx, ry) = client.position
             p, q = chunked(x), chunked(z)
             if (p,q) not in chunks:
-                chunks.append((p,q))
-        print(chunks)
-        tree = QuadTree(chunks)
-        tree.graph()
+                chunks[(p,q)] = Chunk(p,q)
+            chunks[(p,q)].clients.append(client)
+        self.quad_tree = QuadTree(chunks)
 
 
 

@@ -14,6 +14,28 @@ import traceback
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
+CHUNK_SIZE = 32
+
+def chunked(x):
+    return int(floor(round(x) / CHUNK_SIZE))
+
+def box_point_distance(minp, minq, maxp, maxq, p, q):
+    dp = max(max(minp - p, p - maxp), 0)
+    dq = max(max(minq - q, q - maxq), 0)
+    return dp**2 + dq**2
+
+class Chunk():
+  def __init__(self, p, q):  
+    self.p = p
+    self.q = q
+    self.clients = []
+  def output(self):
+    return "p: {}, q: {}, clients: {}".format(self.p, self.q, ', '.join(str(id) for id in self.clients))
+  def __repr__(self):
+    return self.output()
+  def __str__(self):
+    return self.output()
+
 class Node():
   def __init__(self):
     self.isLeaf = False
@@ -22,26 +44,26 @@ class Node():
 
 class QuadTree():
   def __init__(self, chunks):
-    minint = -sys.maxint - 1
+    chunks = list(chunks.values())
 
-    bminx = minint
-    bminy = minint
-    bmaxx = sys.maxint
-    bmaxy = sys.maxint
+    minint = -sys.maxint - 1
+    self.minp = minint
+    self.minq = minint
+    self.maxp = sys.maxint
+    self.maxq = sys.maxint
 
     for chunk in chunks:
-      bminx = min(bminx, chunk[0])
-      bminy = min(bminy, chunk[1])
-      bmaxx = max(bminx, chunk[0])
-      bmaxy = max(bmaxy, chunk[1])
+      self.minp = min(self.minp, chunk.p)
+      self.minq = min(self.minq, chunk.q)
+      self.maxp = max(self.maxp, chunk.p)
+      self.maxq = max(self.maxq, chunk.q)
 
-    self.root = self.build(chunks, bminx, bminy, bmaxx, bmaxy)
-
+    self.root = self.build(chunks, self.minp, self.minq, self.maxp, self.maxq)
 
   def build_pool(self, data):
     return self.build(data[0], data[1], data[2], data[3], data[4])
 
-  def build(self, chunks, bminx, bminy, bmaxx, bmaxy):
+  def build(self, chunks, minp, minq, maxp, maxq):
     node = Node()
 
     if len(chunks) < 2:
@@ -55,25 +77,60 @@ class QuadTree():
       c2 = []
       c3 = []
 
-      x_pivot = int((bminx + bmaxx) * 0.5)
-      y_pivot = int((bminy + bmaxy) * 0.5)
+      p_pivot = int((minp + maxp) * 0.5)
+      q_pivot = int((minq + maxq) * 0.5)
 
       for chunk in chunks:
-        if chunk[0] < x_pivot:
-          if chunk[1] < y_pivot:
+        if chunk.p < p_pivot:
+          if chunk.q < q_pivot:
             c0.append(chunk)
           else:
             c2.append(chunk)
         else:
-          if chunk[1] < y_pivot:
+          if chunk.q < q_pivot:
             c1.append(chunk)
           else:
             c3.append(chunk)
 
-      data = [(c0, bminx, bminy, x_pivot, y_pivot), (c1, x_pivot, bminy, bmaxx, y_pivot), (c2, bminx, y_pivot, x_pivot, bmaxy), (c3, x_pivot, y_pivot, bmaxx, bmaxy)]
+      data = [(c0, minp, minq, p_pivot, q_pivot), (c1, p_pivot, minq, maxp, q_pivot), (c2, minp, q_pivot, p_pivot, maxq), (c3, p_pivot, q_pivot, maxp, maxq)]
 
-      pool = multiprocessing.Pool(4)
-      node.children = list(pool.map(build_pool, data))
+      #pool = multiprocessing.Pool(4)
+      node.children = list(map(self.build_pool, data))
+      #pool.close()
+      #pool.join()
 
     return node
-    
+
+
+  def getClients(self, p, q, radius):
+    return self.getClientsImpl(self.root, self.minp, self.minq, self.maxp, self.maxq, p, q, radius)
+
+  def getClientsImpl(self, node, minp, minq, maxp, maxq, p, q, radius):
+    clients = []
+    if node.isLeaf:
+      for chunk in node.chunks:
+        for client in chunk.clients:
+          if (chunked(client.position[0]) - p)**2 + (chunked(client.position[2]) - q)**2 <= radius**2:
+            clients.append(client)
+    else:
+      p_pivot = int((minp + maxp) * 0.5)
+      q_pivot = int((minq + maxq) * 0.5)
+      p_size = int((maxp - minp) * 0.5)
+      q_size = int((maxq - minq) * 0.5)
+
+      for i in range(4):
+        childminp = 0
+        childminq = 0
+        if i == 1 or i == 3:
+            childminp = p_pivot
+        else:
+            childminp = minp
+        if i > 1:
+            childminq = q_pivot
+        else:
+            childminq = minq
+
+        if box_point_distance(childminp, childminq, childminp + p_size, childminq + q_size, p, q) <= radius**2:
+          clients.extend(self.getClientsImpl(node.children[i], childminp, childminq, childminp + p_size, childminq + q_size, p, q, radius))
+
+    return clients
