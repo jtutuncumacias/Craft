@@ -625,6 +625,7 @@ class Model(object):
                 continue
             other.send(DISCONNECT, client.client_id)
     def send_block(self, client, p, q, x, y, z, w):
+        start = time.time();
         quadclients = self.quad_tree.getClients(self.clients_dict, p, q, 4)
         
         for other in quadclients:
@@ -632,6 +633,7 @@ class Model(object):
                 continue
             other.send(BLOCK, p, q, x, y, z, w)
             other.send(REDRAW, p, q)
+        elapsed = time.time() - start
     def send_light(self, client, p, q, x, y, z, w):
         quadclients = self.quad_tree.getClients(self.clients_dict, p, q, 4)
         
