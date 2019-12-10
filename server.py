@@ -172,6 +172,7 @@ class Model(object):
         self.quad_tree = None
         self.world = World(seed)
         self.clients = []
+        self.clients_dict = {}
         self.queue = Queue.Queue()
         self.commands = {
             AUTHENTICATE: self.on_authenticate,
@@ -290,6 +291,7 @@ class Model(object):
         log('CONN', client.client_id, *client.client_address)
         client.position = SPAWN_POINT
         self.clients.append(client)
+        self.clients_dict[client.client_id] = client
         client.send(YOU, client.client_id, *client.position)
         client.send(TIME, time.time(), DAY_LENGTH)
         client.send(TALK, 'Welcome to Craft!')
@@ -309,6 +311,7 @@ class Model(object):
     def on_disconnect(self, client):
         log('DISC', client.client_id, *client.client_address)
         self.clients.remove(client)
+        del self.clients_dict[client.client_id]
         self.send_disconnect(client)
         self.send_talk('%s has disconnected from the server.' % client.nick)
     def on_version(self, client, version):
@@ -593,8 +596,7 @@ class Model(object):
     def send_positions(self, client):
         (x, y, z, rx, ry) = client.position
         p, q = chunked(x), chunked(z)
-        quadclients = self.quad_tree.getClients(p, q, 4)
-        print("quadclients: ", ', '.join(str(client.client_id) for client in quadclients))
+        quadclients = self.quad_tree.getClients(self.clients_dict, p, q, 4)
 
         for other in quadclients:
             if other == client:
@@ -603,8 +605,7 @@ class Model(object):
     def send_position(self, client):
         (x, y, z, rx, ry) = client.position
         p, q = chunked(x), chunked(z)
-        quadclients = self.quad_tree.getClients(p, q, 4)
-        print("quadclients: ", ', '.join(str(client.client_id) for client in quadclients))
+        quadclients = self.quad_tree.getClients(self.clients_dict, p, q, 4)
 
         for other in quadclients:
             if other == client:
@@ -624,8 +625,7 @@ class Model(object):
                 continue
             other.send(DISCONNECT, client.client_id)
     def send_block(self, client, p, q, x, y, z, w):
-        quadclients = self.quad_tree.getClients(p, q, 4)
-        print("quadclients: ", ', '.join(str(client.client_id) for client in quadclients))
+        quadclients = self.quad_tree.getClients(self.clients_dict, p, q, 4)
         
         for other in quadclients:
             if other == client:
@@ -633,8 +633,7 @@ class Model(object):
             other.send(BLOCK, p, q, x, y, z, w)
             other.send(REDRAW, p, q)
     def send_light(self, client, p, q, x, y, z, w):
-        quadclients = self.quad_tree.getClients(p, q, 4)
-        print("quadclients: ", ', '.join(str(client.client_id) for client in quadclients))
+        quadclients = self.quad_tree.getClients(self.clients_dict, p, q, 4)
         
         for other in quadclients:
             if other == client:
@@ -642,7 +641,7 @@ class Model(object):
             other.send(LIGHT, p, q, x, y, z, w)
             other.send(REDRAW, p, q)
     def send_sign(self, client, p, q, x, y, z, face, text):
-        quadclients = self.quad_tree.getClients(p, q, 4)
+        quadclients = self.quad_tree.getClients(self.clients_dict, p, q, 4)
         print("quadclients: ", ', '.join(str(client.client_id) for client in quadclients))
         
         for other in quadclients:
@@ -660,7 +659,7 @@ class Model(object):
             p, q = chunked(x), chunked(z)
             if (p,q) not in chunks:
                 chunks[(p,q)] = Chunk(p,q)
-            chunks[(p,q)].clients.append(client)
+            chunks[(p,q)].clients.append(client.client_id)
         self.quad_tree = QuadTree(chunks)
 
 
